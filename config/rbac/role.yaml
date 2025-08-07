@@ -1,0 +1,38 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+- apiGroups:
+  - dns.infoblox.example
+  resources:
+  - hostrecords
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - dns.infoblox.example
+  resources:
+  - hostrecords/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - dns.infoblox.example
+  resources:
+  - hostrecords/status
+  verbs:
+  - get
+  - patch
+  - update

@@ -1,0 +1,22 @@
+apiVersion: dns.infoblox.example/v1alpha1
+kind: HostRecord
+metadata:
+  labels:
+    app.kubernetes.io/name: infoblox-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: hostrecord-sample
+spec:
+  wapiEndpoint: https://infoblox.example.com/wapi/v2.12
+  credentialsSecret:
+    name: infoblox-credentials
+  insecureTLS: false
+  fqdn: mycluster.example.com
+  # Option A: specify a fixed IP
+  # ip: 10.0.0.10
+  # Option B: allocate from a network
+  networkCIDR: 10.0.0.0/24
+  dnsView: default
+  networkView: default
+  ttl: 300
+  extAttrs:
+    Owner: cluster-api
