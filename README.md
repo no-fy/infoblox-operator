@@ -50,7 +50,7 @@ kubectl apply -k config/samples/
 ### Sample CR
 
 ```yaml
-apiVersion: dns.infoblox.example/v1alpha1
+apiVersion: dns.hefr.ch/v1alpha1
 kind: HostRecord
 metadata:
   name: hostrecord-sample

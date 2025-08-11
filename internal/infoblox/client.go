@@ -159,7 +159,10 @@ func (c *Client) CreateHostRecord(ctx context.Context, name, view string, ttl *i
 
 // GetByRef fetches an object by Infoblox reference.
 func (c *Client) GetByRef(ctx context.Context, ref string) (*RecordHost, error) {
-	endpoint := c.baseURL + url.PathEscape(ref)
+	// Infoblox WAPI expects the object reference as a raw path segment, not URL-escaped as a whole.
+	// The ref already contains the object type and ID separated by '/', e.g., "record:host/XYZ".
+	// Escaping the '/' results in an invalid path like "record:host%2FXYZ" and a 400 error.
+	endpoint := c.baseURL + ref
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	c.applyAuthHeaders(req)
 	resp, err := c.http.Do(req)
@@ -183,7 +186,8 @@ func (c *Client) GetByRef(ctx context.Context, ref string) (*RecordHost, error) 
 
 // DeleteByRef deletes an object by reference.
 func (c *Client) DeleteByRef(ctx context.Context, ref string) error {
-	endpoint := c.baseURL + url.PathEscape(ref)
+	// See note in GetByRef: do not URL-escape the entire reference
+	endpoint := c.baseURL + ref
 	req, _ := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
 	c.applyAuthHeaders(req)
 	resp, err := c.http.Do(req)

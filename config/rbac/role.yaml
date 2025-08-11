@@ -10,8 +10,10 @@ rules:
   - secrets
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
-  - dns.infoblox.example
+  - dns.hefr.ch
   resources:
   - hostrecords
   verbs:
@@ -23,13 +25,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - dns.infoblox.example
+  - dns.hefr.ch
   resources:
   - hostrecords/finalizers
   verbs:
   - update
 - apiGroups:
-  - dns.infoblox.example
+  - dns.hefr.ch
   resources:
   - hostrecords/status
   verbs:

@@ -37,10 +37,10 @@ type HostRecordReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=dns.infoblox.example,resources=hostrecords,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=dns.infoblox.example,resources=hostrecords/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=dns.infoblox.example,resources=hostrecords/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get
+// +kubebuilder:rbac:groups=dns.hefr.ch,resources=hostrecords,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=dns.hefr.ch,resources=hostrecords/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=dns.hefr.ch,resources=hostrecords/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -53,6 +53,8 @@ type HostRecordReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.21.0/pkg/reconcile
 func (r *HostRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := logf.FromContext(ctx)
+	logger = logger.WithValues("hostrecord", req.NamespacedName.String())
+	logger.Info("reconcile start")
 
 	var hr dnsv1alpha1.HostRecord
 	if err := r.Get(ctx, req.NamespacedName, &hr); err != nil {
@@ -70,22 +72,52 @@ func (r *HostRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			}
 		}
 	} else {
-		// Handle delete
-		if containsString(hr.Finalizers, finalizer) && hr.Status.Ref != "" {
-			// best-effort deletion
-			credNS := hr.Spec.CredentialsSecret.Namespace
-			if credNS == "" {
-				credNS = hr.Namespace
+		// Handle delete with finalizer: ensure remote Infoblox record is removed before finalizer is cleared
+		if containsString(hr.Finalizers, finalizer) {
+			logger.Info("deletion requested")
+			credNamespace := hr.Spec.CredentialsSecret.Namespace
+			if credNamespace == "" {
+				credNamespace = hr.Namespace
 			}
-			username, password, err := r.loadCredentials(ctx, credNS, hr.Spec.CredentialsSecret.Name)
-			if err == nil {
-				c := ibx.NewClient(hr.Spec.WAPIEndpoint, username, password, hr.Spec.InsecureTLS)
-				_ = c.DeleteByRef(ctx, hr.Status.Ref)
+
+			username, password, credErr := r.loadCredentials(ctx, credNamespace, hr.Spec.CredentialsSecret.Name)
+			if credErr != nil {
+				// Credentials not available; requeue until they are so we can clean up the remote record
+				logf.FromContext(ctx).Error(credErr, "credentials not available during deletion; will requeue")
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 			}
+
+			client := ibx.NewClient(hr.Spec.WAPIEndpoint, username, password, hr.Spec.InsecureTLS)
+
+			refToDelete := hr.Status.Ref
+			if refToDelete == "" {
+				// Fallback: try to resolve by FQDN in case status was never populated
+				existing, err := client.GetHostRecord(ctx, hr.Spec.FQDN, hr.Spec.DNSView)
+				if err != nil {
+					logf.FromContext(ctx).Error(err, "failed to resolve host record during deletion; will requeue")
+					return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+				}
+				if existing != nil {
+					refToDelete = existing.Ref
+				}
+			}
+
+			if refToDelete != "" {
+				logger.Info("deleting Infoblox host record", "ref", refToDelete, "fqdn", hr.Spec.FQDN)
+				if err := client.DeleteByRef(ctx, refToDelete); err != nil {
+					// Remote deletion failed; keep finalizer and retry
+					logf.FromContext(ctx).Error(err, "failed to delete host record in Infoblox; will requeue")
+					return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+				}
+				logger.Info("deleted Infoblox host record", "ref", refToDelete)
+			}
+
+			// Either successfully deleted or nothing existed; remove finalizer and finish
 			hr.Finalizers = removeString(hr.Finalizers, finalizer)
 			if err := r.Update(ctx, &hr); err != nil {
 				return ctrl.Result{}, err
 			}
+			logger.Info("finalizer removed; deletion complete")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -116,6 +148,7 @@ func (r *HostRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if hr.Spec.IP == "" && hr.Spec.NetworkCIDR != "" {
 			nextAvailable = hr.Spec.NetworkCIDR
 		}
+		logger.Info("creating Infoblox host record", "fqdn", hr.Spec.FQDN, "dnsView", hr.Spec.DNSView, "ip", hr.Spec.IP, "nextAvailable", nextAvailable)
 		ref, ip, err := client.CreateHostRecord(ctx, hr.Spec.FQDN, hr.Spec.DNSView, hr.Spec.TTL, hr.Spec.IP, nextAvailable, hr.Spec.ExtAttrs)
 		if err != nil {
 			logger.Error(err, "failed to create host record")
@@ -129,6 +162,7 @@ func (r *HostRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			logger.Error(err, "status update failed")
 			return ctrl.Result{Requeue: true}, nil
 		}
+		logger.Info("created Infoblox host record", "ref", ref, "allocatedIP", hr.Status.AllocatedIP)
 		return ctrl.Result{}, nil
 	}
 
@@ -143,6 +177,7 @@ func (r *HostRecordReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		logger.Error(err, "status update failed")
 		return ctrl.Result{Requeue: true}, nil
 	}
+	logger.Info("host record exists; status ensured", "ref", hr.Status.Ref, "allocatedIP", hr.Status.AllocatedIP)
 
 	return ctrl.Result{}, nil
 }

@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: v4.7.1
-domain: infoblox.example
+domain: hefr.ch
 layout:
 - go.kubebuilder.io/v4
 projectName: infoblox-operator
@@ -13,7 +13,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: infoblox.example
+  domain: hefr.ch
   group: dns
   kind: HostRecord
   path: github.com/no-fy/infoblox-operator/api/v1alpha1
